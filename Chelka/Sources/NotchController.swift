@@ -68,8 +68,12 @@ final class NotchController {
     let model = NotchModel()
     private let panel = NotchPanel()
     private var screen: NSScreen?
-    private var timer: Timer?
-    private var hoverStart: Date?
+    /// Подписки на движение мыши (глобальная и внутри своего окна).
+    private var mouseMonitors: [Any] = []
+    /// Однократный таймер паузы перед раскрытием.
+    private var dwellTimer: Timer?
+    /// Опрос мыши только пока панель раскрыта: следим, когда мышь уйдёт.
+    private var expandedTimer: Timer?
 
     func start() {
         panel.contentView = FirstMouseHostingView(rootView: NotchRoot(model: model))
@@ -80,8 +84,20 @@ final class NotchController {
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.layout() }
 
-        // Положение мыши опрашиваем сами: так не нужны никакие разрешения.
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in self?.tick() }
+        // В свёрнутом виде ничего не опрашиваем: macOS сама сообщает о движении мыши.
+        // Для событий мыши (в отличие от клавиатуры) разрешения не нужны.
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in
+            self?.mouseMoved()
+        }) {
+            mouseMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
+            self?.mouseMoved()
+            return event
+        }) {
+            mouseMonitors.append(local)
+        }
 
         model.system.start()
     }
@@ -97,32 +113,41 @@ final class NotchController {
                        display: true)
     }
 
-    private func tick() {
-        guard let screen else { return }
-        let mouse = NSEvent.mouseLocation
-        let top = screen.frame.maxY
-
-        if model.expanded {
-            let w = Layout.expandedSize.width + 24
-            let h = Layout.expandedSize.height + 16
-            let keep = NSRect(x: screen.frame.midX - w / 2, y: top - h, width: w, height: h)
-            if !contains(keep, mouse) { setExpanded(false) }
-        } else {
-            let collapsed = Layout.collapsedSize(notch: model.notchSize, live: model.timer.isLive)
-            let w = max(collapsed.width, model.notchSize.width) + 16
-            let h = model.notchSize.height
-            let hot = NSRect(x: screen.frame.midX - w / 2, y: top - h, width: w, height: h)
-            if contains(hot, mouse) {
-                // Короткая задержка, чтобы панель не выскакивала, когда мышь просто пролетает мимо.
-                if let start = hoverStart {
-                    if Date().timeIntervalSince(start) > 0.12 { setExpanded(true) }
-                } else {
-                    hoverStart = Date()
-                }
-            } else {
-                hoverStart = nil
+    /// Мышь сдвинулась (в свёрнутом виде). Если она над вырезом — ждём 0,12 с и раскрываем.
+    private func mouseMoved() {
+        guard !model.expanded else { return }
+        if mouseInHotZone() {
+            guard dwellTimer == nil else { return }
+            // Пауза, чтобы панель не выскакивала, когда мышь просто пролетает мимо.
+            // Отдельный таймер нужен, потому что если мышь замрёт, новых событий не будет.
+            dwellTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                self.dwellTimer = nil
+                if !self.model.expanded, self.mouseInHotZone() { self.setExpanded(true) }
             }
+        } else {
+            dwellTimer?.invalidate()
+            dwellTimer = nil
         }
+    }
+
+    /// Пока панель раскрыта, 20 раз в секунду проверяем, не ушла ли мышь.
+    /// Над своим неактивным окном события движения приходят ненадёжно, поэтому здесь опрос.
+    private func checkMouseLeft() {
+        guard let screen else { return }
+        let w = Layout.expandedSize.width + 24
+        let h = Layout.expandedSize.height + 16
+        let keep = NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
+        if !contains(keep, NSEvent.mouseLocation) { setExpanded(false) }
+    }
+
+    private func mouseInHotZone() -> Bool {
+        guard let screen else { return false }
+        let collapsed = Layout.collapsedSize(notch: model.notchSize, live: model.timer.isLive)
+        let w = max(collapsed.width, model.notchSize.width) + 16
+        let h = model.notchSize.height
+        let hot = NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
+        return contains(hot, NSEvent.mouseLocation)
     }
 
     /// NSRect.contains не включает верхний край, а мышь у края экрана стоит ровно на нём.
@@ -131,9 +156,17 @@ final class NotchController {
     }
 
     private func setExpanded(_ expanded: Bool) {
-        hoverStart = nil
+        dwellTimer?.invalidate()
+        dwellTimer = nil
+        expandedTimer?.invalidate()
+        expandedTimer = nil
         model.expanded = expanded
         model.system.active = expanded
         panel.ignoresMouseEvents = !expanded
+        if expanded {
+            expandedTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+                self?.checkMouseLeft()
+            }
+        }
     }
 }
