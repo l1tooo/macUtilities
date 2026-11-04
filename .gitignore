@@ -1,0 +1,6 @@
+# Результаты сборки
+build/
+*.app
+
+# macOS
+.DS_Store
