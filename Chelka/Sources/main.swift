@@ -1,5 +1,5 @@
 // Chelka — панель в вырезе экрана MacBook: при наведении раскрывается
-// и показывает музыку, события календаря на сегодня и заряд батареи.
+// и показывает время, систему, громкость, яркость и таймер.
 
 import AppKit
 import SwiftUI
@@ -12,11 +12,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = NotchController()
         controller.start()
         self.controller = controller
+        LaunchAtLogin.enableOnFirstLaunch()
     }
 }
 
 enum LaunchAtLogin {
     static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
+
+    /// При первом запуске сразу включаем автозапуск: иначе после перезагрузки панель пропадает,
+    /// а пункт меню спрятан в правом клике. Если пользователь потом выключит его, больше не трогаем.
+    static func enableOnFirstLaunch() {
+        let key = "launchAtLoginOffered"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        if !isEnabled { toggle() }
+    }
 
     static func toggle() {
         do {
