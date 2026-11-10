@@ -29,7 +29,7 @@
 build/Chelka.app/Contents/MacOS/Chelka --probe   # вывести настоящие показания датчиков
 build/Chelka.app/Contents/MacOS/Chelka --promo docs/chelka.png   # картинка для README и друзей
 ```
-Нужны Command Line Tools (`swiftc`), macOS 14 или новее. Подпись ad-hoc.
+Нужны Command Line Tools (`swiftc`), macOS 14 или новее. Подпись ad-hoc. Собирается и на Apple Silicon, и на Intel: `build.sh` сам выбирает процессор. На Intel-маках выреза нет, поэтому Chelka рисует свою «чёлку» сверху по центру, высотой со строку меню.
 
 ## Разрешения
 - **Универсальный доступ** нужен только кнопкам ⏮ ⏯ ⏭: они отправляют системе нажатие медиаклавиши, как F7–F9. macOS спросит доступ при первом нажатии. После пересборки доступ сбрасывается, и его нужно выдать заново.

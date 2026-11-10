@@ -9,7 +9,7 @@
 ## Как устроена каждая утилита
 - Своя папка в корне: `Sources/*.swift`, `Info.plist`, `build.sh`, `README.md` на русском.
 - `./build.sh` собирает `build/<Имя>.app` через `swiftc` (без Xcode-проекта, без сторонних зависимостей), подписывает ad-hoc. `./build.sh install` кладёт в `~/Applications`.
-- Цель: `arm64`, минимальная macOS указана в `Info.plist` и `build.sh`.
+- Процессор: `build.sh` сам выбирает `arm64` (Apple Silicon) или `x86_64` (Intel) по `sysctl hw.optional.arm64`; `ARCH=x86_64 ./build.sh` — проверить сборку под Intel. Минимальная macOS указана в `Info.plist` и `build.sh`.
 - Bundle ID вида `local.<Имя>`. Менять его нельзя без нужды: macOS сбросит выданные разрешения.
 - Комментарии в коде и тексты интерфейса — на русском.
 
