@@ -10,26 +10,38 @@
 ![Chelka](Chelka/docs/chelka.png)
 
 ## Как поставить
-Подойдёт любой Mac: на Apple Silicon (M1 и новее) и на Intel, сборка сама определит процессор. Нужны инструменты разработчика Apple. Если их нет, macOS сама предложит поставить их при первой команде ниже, либо так:
+Подойдёт любой Mac: на Apple Silicon (M1 и новее) и на Intel. Открой Терминал (⌘ Пробел → «Терминал») и вставь одну строку:
+```bash
+curl -fsSL https://raw.githubusercontent.com/l1tooo/macUtilities/main/install.sh | zsh
+```
+Скрипт сам поставит инструменты разработчика Apple, если их нет (откроется окно, нажми «Установить»), скачает исходники в `~/macUtilities`, соберёт Chelka у тебя на Маке, положит в `~/Applications` и запустит.
+
+Другие утилиты:
+```bash
+curl -fsSL https://raw.githubusercontent.com/l1tooo/macUtilities/main/install.sh | zsh -s -- DockToggle
+```
+```bash
+curl -fsSL https://raw.githubusercontent.com/l1tooo/macUtilities/main/install.sh | zsh -s -- all
+```
+
+Скрипт можно прочитать перед запуском: [install.sh](install.sh).
+
+Почему сборка у себя, а не готовый `.app`: программы не подписаны сертификатом Apple, и скачанный файл macOS заблокирует. Собранное у себя запускается без вопросов, а код можно прочитать: в каждой утилите всего несколько файлов.
+
+<details>
+<summary>Вручную, без скрипта</summary>
+
 ```bash
 xcode-select --install
-```
-
-Скачать и собрать нужную утилиту:
-```bash
-git clone https://github.com/l1tooo/macUtilities.git
-cd macUtilities/Chelka        # или DockToggle
-./build.sh install            # соберёт и положит в ~/Applications
+git clone https://github.com/l1tooo/macUtilities.git ~/macUtilities
+cd ~/macUtilities/Chelka        # или DockToggle
+./build.sh install              # соберёт и положит в ~/Applications
 open ~/Applications/Chelka.app
 ```
-
-Почему из исходников, а не готовым `.app`: программы не подписаны сертификатом Apple, и скачанный файл macOS заблокирует. Собранное у себя запускается без вопросов, а код можно прочитать перед сборкой: в каждой утилите всего несколько файлов.
+</details>
 
 Подробности, разрешения и ограничения описаны в README каждой утилиты.
 
 ## Обновить
-```bash
-cd macUtilities && git pull
-cd Chelka && ./build.sh install
-```
+Запусти ту же команду установки ещё раз: она подтянет свежие исходники и пересоберёт программу.
 После пересборки macOS может заново спросить разрешения (например, «Универсальный доступ»). Если утилита в списке уже есть, но не работает, удали её там кнопкой «−» и добавь снова.
