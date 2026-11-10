@@ -11,7 +11,7 @@ enum Promo {
         let model = NotchModel()
         model.notchSize = CGSize(width: 185, height: 32)
         model.system.setPreview()
-        model.timer.setPreview(remaining: 24 * 60 + 35)
+        model.calculator.setPreview(accumulator: 1250, op: .multiply, entry: "12")
         model.expanded = true
 
         let renderer = ImageRenderer(content: PromoView(model: model))
@@ -103,7 +103,7 @@ struct PromoView: View {
             Text("Chelka")
                 .font(.system(size: 40, weight: .bold, design: .rounded))
                 .foregroundStyle(Color(red: 0.10, green: 0.11, blue: 0.16))
-            Text("Своя «чёлка» для MacBook: система, громкость, яркость и таймер прямо в вырезе экрана")
+            Text("Своя «чёлка» для MacBook: система, громкость, яркость и калькулятор прямо в вырезе экрана")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(Color(red: 0.30, green: 0.32, blue: 0.40))
         }

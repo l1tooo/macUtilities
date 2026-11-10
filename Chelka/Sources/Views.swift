@@ -26,28 +26,18 @@ struct NotchShape: Shape {
 
 struct NotchRoot: View {
     @ObservedObject var model: NotchModel
-    @ObservedObject var timer: FocusTimer
-
-    init(model: NotchModel) {
-        self.model = model
-        self.timer = model.timer
-    }
 
     private var size: CGSize {
-        model.expanded ? Layout.expandedSize : Layout.collapsedSize(notch: model.notchSize, live: timer.isLive)
+        model.expanded ? Layout.expandedSize : Layout.collapsedSize(notch: model.notchSize)
     }
 
     var body: some View {
-        let shape = NotchShape(radius: model.expanded ? 26 : (timer.isLive ? 12 : 8))
+        let shape = NotchShape(radius: model.expanded ? 26 : 8)
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
                 shape.fill(Color.black)
                 if model.expanded {
-                    ExpandedView(model: model, system: model.system, timer: timer)
-                        .transition(.opacity)
-                } else if timer.isLive {
-                    LiveTimerView(timer: timer, notchWidth: model.notchSize.width)
-                        .frame(height: model.notchSize.height)
+                    ExpandedView(model: model, system: model.system, calculator: model.calculator)
                         .transition(.opacity)
                 }
             }
@@ -59,7 +49,6 @@ struct NotchRoot: View {
         .frame(width: Layout.windowSize.width, height: Layout.windowSize.height, alignment: .top)
         .environment(\.colorScheme, .dark)
         .animation(.spring(response: 0.36, dampingFraction: 0.82), value: model.expanded)
-        .animation(.spring(response: 0.36, dampingFraction: 0.82), value: timer.isLive)
         .contextMenu {
             Button(LaunchAtLogin.isEnabled ? "✓ Запускать при входе" : "Запускать при входе") { LaunchAtLogin.toggle() }
             Divider()
@@ -68,28 +57,10 @@ struct NotchRoot: View {
     }
 }
 
-/// Отсчёт таймера по бокам от камеры, когда панель свёрнута.
-struct LiveTimerView: View {
-    @ObservedObject var timer: FocusTimer
-    let notchWidth: CGFloat
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Image(systemName: timer.justFinished ? "checkmark.circle.fill" : (timer.isPaused ? "pause.fill" : "timer"))
-                .font(.system(size: 13, weight: .semibold))
-            Spacer(minLength: notchWidth)
-            Text(timer.justFinished ? "Готово" : Format.countdown(timer.remaining))
-                .font(.system(size: 13, weight: .semibold).monospacedDigit())
-        }
-        .foregroundStyle(timer.justFinished ? Color.green : (timer.isPaused ? Color.white.opacity(0.6) : Color.orange))
-        .padding(.horizontal, 14)
-    }
-}
-
 struct ExpandedView: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var system: SystemFeed
-    @ObservedObject var timer: FocusTimer
+    let calculator: Calculator
 
     var body: some View {
         VStack(spacing: 12) {
@@ -125,12 +96,12 @@ struct ExpandedView: View {
 
             HStack(alignment: .top, spacing: 18) {
                 SystemSection(system: system)
-                    .frame(width: 210, alignment: .leading)
+                    .frame(width: 196, alignment: .leading)
                 SectionDivider()
                 ControlsSection(system: system)
-                    .frame(width: 180, alignment: .leading)
+                    .frame(width: 168, alignment: .leading)
                 SectionDivider()
-                TimerSection(timer: timer)
+                CalculatorSection(calculator: calculator)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: .infinity, alignment: .top)
@@ -242,100 +213,137 @@ struct ThinSlider: View {
     }
 }
 
-struct TimerSection: View {
-    @ObservedObject var timer: FocusTimer
-    @State private var dragStartMinutes: Int?
+/// Калькулятор: сверху мелко первое число и действие, ниже крупно текущее число.
+/// Клик по числу копирует его в буфер обмена.
+struct CalculatorSection: View {
+    @ObservedObject var calculator: Calculator
+    @State private var copied = false
+
+    private enum Key: Hashable {
+        case digit(Int), op(Calculator.Op), comma, equals, clear, backspace, percent, sign
+    }
+
+    private let rows: [[Key]] = [
+        [.digit(7), .digit(8), .digit(9), .op(.divide), .clear],
+        [.digit(4), .digit(5), .digit(6), .op(.multiply), .backspace],
+        [.digit(1), .digit(2), .digit(3), .op(.subtract), .percent],
+        [.sign, .digit(0), .comma, .op(.add), .equals],
+    ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                SectionTitle("ТАЙМЕР")
-                Spacer()
-                if timer.justFinished {
-                    Text("Готово!")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.green)
+        VStack(spacing: 4) {
+            Button(action: copy) {
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text(copied ? "скопировано" : (calculator.expression.isEmpty ? " " : calculator.expression))
+                        .font(.system(size: 10, weight: .medium).monospacedDigit())
+                        .foregroundStyle(copied ? Color.green : Color.white.opacity(0.45))
+                        .lineLimit(1)
+                    Text(calculator.display)
+                        .font(.system(size: 22, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(calculator.isError ? Color.red : Color.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.45)
                 }
-            }
-            if timer.isActive {
-                running
-            } else {
-                setup
-            }
-        }
-    }
-
-    /// Таймер идёт или на паузе.
-    @ViewBuilder private var running: some View {
-        Text(Format.countdown(timer.remaining))
-            .font(.system(size: 28, weight: .semibold).monospacedDigit())
-            .foregroundStyle(timer.isPaused ? Color.white.opacity(0.5) : Color.orange)
-            .frame(height: 36)
-        HStack(spacing: 5) {
-            Chip(timer.isPaused ? "Дальше" : "Пауза") { timer.togglePause() }
-            Chip("+5") { timer.add(minutes: 5) }
-            Chip("Стоп") { timer.stop() }
-        }
-    }
-
-    /// Выбор времени: − и +, перетаскивание по числу, быстрые варианты, «Старт».
-    @ViewBuilder private var setup: some View {
-        HStack(spacing: 8) {
-            RoundButton(symbol: "minus") { timer.adjustDraft(by: -1) }
-            Text(Format.countdown(TimeInterval(timer.draftMinutes * 60)))
-                .font(.system(size: 26, weight: .semibold).monospacedDigit())
-                .frame(minWidth: 84)
+                .frame(maxWidth: .infinity, alignment: .trailing)
                 .contentShape(Rectangle())
-                .gesture(
-                    // Тянешь вверх или вправо — больше, вниз или влево — меньше.
-                    DragGesture(minimumDistance: 2)
-                        .onChanged { drag in
-                            let start = dragStartMinutes ?? timer.draftMinutes
-                            dragStartMinutes = start
-                            let steps = Int((drag.translation.width - drag.translation.height) / 6)
-                            timer.draftMinutes = start + steps
+            }
+            .buttonStyle(.plain)
+            .help("Скопировать число")
+
+            Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+                ForEach(rows.indices, id: \.self) { row in
+                    GridRow {
+                        ForEach(rows[row], id: \.self) { key in
+                            CalcKey(title: title(key), symbol: symbol(key), style: style(key)) { press(key) }
                         }
-                        .onEnded { _ in dragStartMinutes = nil }
-                )
-            RoundButton(symbol: "plus") { timer.adjustDraft(by: 1) }
-        }
-        .frame(height: 36)
-        HStack(spacing: 5) {
-            ForEach([5, 15, 30, 60], id: \.self) { minutes in
-                Chip(minutes == 60 ? "1 ч" : "\(minutes)", selected: timer.draftMinutes == minutes) {
-                    timer.draftMinutes = minutes
+                    }
                 }
             }
         }
-        Button { timer.start() } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "play.fill")
-                Text("Старт")
-            }
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.black)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 5)
-            .background(Capsule().fill(Color.orange))
-            .contentShape(Capsule())
+    }
+
+    private func press(_ key: Key) {
+        copied = false
+        switch key {
+        case .digit(let d): calculator.digit(d)
+        case .op(let op): calculator.operation(op)
+        case .comma: calculator.comma()
+        case .equals: calculator.equals()
+        case .clear: calculator.clear()
+        case .backspace: calculator.backspace()
+        case .percent: calculator.percent()
+        case .sign: calculator.toggleSign()
         }
-        .buttonStyle(.plain)
+    }
+
+    private func copy() {
+        guard !calculator.copyText.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(calculator.copyText, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
+    }
+
+    private func title(_ key: Key) -> String {
+        switch key {
+        case .digit(let d): return String(d)
+        case .op(let op): return op.rawValue
+        case .comma: return ","
+        case .equals: return "="
+        case .clear: return "C"
+        case .percent: return "%"
+        case .sign: return "±"
+        case .backspace: return ""
+        }
+    }
+
+    private func symbol(_ key: Key) -> String? {
+        key == .backspace ? "delete.left" : nil
+    }
+
+    private func style(_ key: Key) -> CalcKey.Style {
+        switch key {
+        case .digit, .comma, .sign: return .digit
+        case .op(let op): return calculator.pendingOp == op && !calculator.isError ? .selected : .operation
+        case .equals: return .operation
+        case .clear, .backspace, .percent: return .function
+        }
     }
 }
 
-struct RoundButton: View {
-    let symbol: String
+struct CalcKey: View {
+    enum Style { case digit, function, operation, selected }
+
+    let title: String
+    let symbol: String?
+    let style: Style
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .bold))
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(Color.white.opacity(0.13)))
-                .contentShape(Circle())
+            Group {
+                if let symbol {
+                    Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+                } else {
+                    Text(title).font(.system(size: 13, weight: style == .digit ? .regular : .semibold))
+                }
+            }
+            .foregroundStyle(style == .selected ? Color.orange : Color.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 22)
+            .background(RoundedRectangle(cornerRadius: 6).fill(background))
+            .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
+    }
+
+    private var background: Color {
+        switch style {
+        case .digit: return Color.white.opacity(0.13)
+        case .function: return Color.white.opacity(0.24)
+        case .operation: return Color.orange
+        case .selected: return Color.white
+        }
     }
 }
 
@@ -423,31 +431,6 @@ struct MediaButton: View {
     }
 }
 
-struct Chip: View {
-    let title: String
-    let selected: Bool
-    let action: () -> Void
-
-    init(_ title: String, selected: Bool = false, action: @escaping () -> Void) {
-        self.title = title
-        self.selected = selected
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(selected ? Color.black : Color.white)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(Capsule().fill(selected ? Color.white : Color.white.opacity(0.13)))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 // MARK: - Форматирование
 
 enum Format {
@@ -469,12 +452,6 @@ enum Format {
     }
 
     static func percent(_ value: Double) -> String { "\(Int((value * 100).rounded()))%" }
-
-    static func countdown(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds.rounded(.up))
-        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
-    }
 
     /// binary: память считаем в ГиБ (как macOS для ОЗУ), диск — в десятичных ГБ (как Finder).
     static func gigabytes(_ bytes: Double, decimals: Int, binary: Bool = true) -> String {

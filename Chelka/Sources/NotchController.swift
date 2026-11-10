@@ -5,14 +5,10 @@ enum Layout {
     static let expandedSize = CGSize(width: 680, height: 200)
     /// Окно чуть больше раскрытой панели, чтобы влезла тень.
     static let windowSize = CGSize(width: 740, height: 232)
-    /// Насколько «чёлка» расширяется в каждую сторону, когда идёт таймер.
-    static let liveWing: CGFloat = 64
 
-    /// Размер свёрнутой формы. Без таймера она чуть меньше настоящего выреза, чтобы её не было видно.
-    static func collapsedSize(notch: CGSize, live: Bool) -> CGSize {
-        live
-            ? CGSize(width: notch.width + liveWing * 2, height: notch.height)
-            : CGSize(width: max(notch.width - 6, 40), height: max(notch.height - 2, 10))
+    /// Размер свёрнутой формы: чуть меньше настоящего выреза, чтобы её не было видно.
+    static func collapsedSize(notch: CGSize) -> CGSize {
+        CGSize(width: max(notch.width - 6, 40), height: max(notch.height - 2, 10))
     }
 }
 
@@ -21,7 +17,7 @@ final class NotchModel: ObservableObject {
     @Published var notchSize = CGSize(width: 185, height: 32)
 
     let system = SystemFeed()
-    let timer = FocusTimer()
+    let calculator = Calculator()
 }
 
 /// Окно без рамки поверх строки меню. Не забирает фокус у приложений.
@@ -143,7 +139,7 @@ final class NotchController {
 
     private func mouseInHotZone() -> Bool {
         guard let screen else { return false }
-        let collapsed = Layout.collapsedSize(notch: model.notchSize, live: model.timer.isLive)
+        let collapsed = Layout.collapsedSize(notch: model.notchSize)
         let w = max(collapsed.width, model.notchSize.width) + 16
         let h = model.notchSize.height
         let hot = NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
