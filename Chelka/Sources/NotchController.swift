@@ -6,9 +6,15 @@ enum Layout {
     /// Окно чуть больше раскрытой панели, чтобы влезла тень.
     static let windowSize = CGSize(width: 740, height: 232)
 
-    /// Размер свёрнутой формы: чуть меньше настоящего выреза, чтобы её не было видно.
-    static func collapsedSize(notch: CGSize) -> CGSize {
-        CGSize(width: max(notch.width - 6, 40), height: max(notch.height - 2, 10))
+    /// Насколько «чёлка» расширяется в каждую сторону, когда идёт запись экрана.
+    static let liveWing: CGFloat = 64
+
+    /// Размер свёрнутой формы. Обычно чуть меньше настоящего выреза, чтобы её не было видно;
+    /// во время записи — шире, по бокам красная точка и время.
+    static func collapsedSize(notch: CGSize, live: Bool) -> CGSize {
+        live
+            ? CGSize(width: notch.width + liveWing * 2, height: notch.height)
+            : CGSize(width: max(notch.width - 6, 40), height: max(notch.height - 2, 10))
     }
 }
 
@@ -18,6 +24,7 @@ final class NotchModel: ObservableObject {
 
     let system = SystemFeed()
     let calculator = Calculator()
+    let recorder = Recorder()
 }
 
 /// Окно без рамки поверх строки меню. Не забирает фокус у приложений.
@@ -95,6 +102,9 @@ final class NotchController {
             mouseMonitors.append(local)
         }
 
+        model.recorder.collapse = { [weak self] in self?.setExpanded(false) }
+        model.recorder.screen = { [weak self] in self?.screen }
+
         model.system.start()
     }
 
@@ -139,7 +149,7 @@ final class NotchController {
 
     private func mouseInHotZone() -> Bool {
         guard let screen else { return false }
-        let collapsed = Layout.collapsedSize(notch: model.notchSize)
+        let collapsed = Layout.collapsedSize(notch: model.notchSize, live: model.recorder.isRecording)
         let w = max(collapsed.width, model.notchSize.width) + 16
         let h = model.notchSize.height
         let hot = NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)

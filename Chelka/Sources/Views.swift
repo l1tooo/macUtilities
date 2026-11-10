@@ -26,18 +26,28 @@ struct NotchShape: Shape {
 
 struct NotchRoot: View {
     @ObservedObject var model: NotchModel
+    @ObservedObject var recorder: Recorder
+
+    init(model: NotchModel) {
+        self.model = model
+        self.recorder = model.recorder
+    }
 
     private var size: CGSize {
-        model.expanded ? Layout.expandedSize : Layout.collapsedSize(notch: model.notchSize)
+        model.expanded ? Layout.expandedSize : Layout.collapsedSize(notch: model.notchSize, live: recorder.isRecording)
     }
 
     var body: some View {
-        let shape = NotchShape(radius: model.expanded ? 26 : 8)
+        let shape = NotchShape(radius: model.expanded ? 26 : (recorder.isRecording ? 12 : 8))
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
                 shape.fill(Color.black)
                 if model.expanded {
                     ExpandedView(model: model, system: model.system, calculator: model.calculator)
+                        .transition(.opacity)
+                } else if recorder.isRecording {
+                    RecordingLiveView(recorder: recorder, notchWidth: model.notchSize.width)
+                        .frame(height: model.notchSize.height)
                         .transition(.opacity)
                 }
             }
@@ -49,10 +59,39 @@ struct NotchRoot: View {
         .frame(width: Layout.windowSize.width, height: Layout.windowSize.height, alignment: .top)
         .environment(\.colorScheme, .dark)
         .animation(.spring(response: 0.36, dampingFraction: 0.82), value: model.expanded)
+        .animation(.spring(response: 0.36, dampingFraction: 0.82), value: recorder.isRecording)
         .contextMenu {
             Button(LaunchAtLogin.isEnabled ? "✓ Запускать при входе" : "Запускать при входе") { LaunchAtLogin.toggle() }
             Divider()
             Button("Выйти из Chelka") { NSApp.terminate(nil) }
+        }
+    }
+}
+
+/// Красная точка и время записи по бокам от камеры, когда панель свёрнута.
+struct RecordingLiveView: View {
+    @ObservedObject var recorder: Recorder
+    let notchWidth: CGFloat
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Circle().fill(Color.red).frame(width: 9, height: 9)
+            Spacer(minLength: notchWidth)
+            RecordingClock(startedAt: recorder.startedAt)
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(Color.red)
+        }
+        .padding(.horizontal, 16)
+    }
+}
+
+/// Время с начала записи, обновляется раз в секунду.
+struct RecordingClock: View {
+    let startedAt: Date?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text(Format.elapsed(context.date.timeIntervalSince(startedAt ?? context.date)))
         }
     }
 }
@@ -96,10 +135,10 @@ struct ExpandedView: View {
 
             HStack(alignment: .top, spacing: 18) {
                 SystemSection(system: system)
-                    .frame(width: 196, alignment: .leading)
+                    .frame(width: 186, alignment: .leading)
                 SectionDivider()
-                ControlsSection(system: system)
-                    .frame(width: 168, alignment: .leading)
+                ControlsSection(system: system, recorder: model.recorder)
+                    .frame(width: 178, alignment: .leading)
                 SectionDivider()
                 CalculatorSection(calculator: calculator)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -152,9 +191,10 @@ struct SystemSection: View {
 
 struct ControlsSection: View {
     @ObservedObject var system: SystemFeed
+    let recorder: Recorder
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: 9) {
             SectionTitle("УПРАВЛЕНИЕ")
             HStack(spacing: 8) {
                 Button { system.toggleMute() } label: {
@@ -182,8 +222,88 @@ struct ControlsSection: View {
                 MediaButton(symbol: "forward.fill") { MediaKeys.press(MediaKeys.next) }
             }
             .frame(maxWidth: .infinity)
+
+            if Recorder.isSupported {
+                RecordRow(recorder: recorder)
+            }
         }
         .font(.system(size: 12))
+    }
+}
+
+/// Запись экрана: «Экран» или «Область», микрофон вкл/выкл; во время записи — время и «Стоп».
+struct RecordRow: View {
+    @ObservedObject var recorder: Recorder
+
+    var body: some View {
+        Group {
+            if let message = recorder.message, !recorder.isRecording {
+                Text(message)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if recorder.isRecording {
+                HStack(spacing: 6) {
+                    Circle().fill(Color.red).frame(width: 8, height: 8)
+                    RecordingClock(startedAt: recorder.startedAt)
+                        .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    Spacer(minLength: 4)
+                    Button { recorder.stop() } label: {
+                        Label("Стоп", systemImage: "stop.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.red))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(recorder.busy)
+                }
+            } else {
+                HStack(spacing: 4) {
+                    RecordButton(symbol: "record.circle", title: "Экран") { recorder.start(region: false) }
+                    RecordButton(symbol: "rectangle.dashed", title: "Область") { recorder.start(region: true) }
+                    Spacer(minLength: 0)
+                    Button { recorder.microphone.toggle() } label: {
+                        Image(systemName: recorder.microphone ? "mic.fill" : "mic.slash")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(recorder.microphone ? Color.white : Color.white.opacity(0.4))
+                            .frame(width: 22, height: 22)
+                            .background(Circle().fill(Color.white.opacity(recorder.microphone ? 0.24 : 0.1)))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(recorder.microphone ? "Голос пишется. Выключить микрофон" : "Голос не пишется. Включить микрофон")
+                }
+                .disabled(recorder.busy)
+                .opacity(recorder.busy ? 0.5 : 1)
+            }
+        }
+        .frame(height: 24)
+    }
+}
+
+struct RecordButton: View {
+    let symbol: String
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: symbol).foregroundStyle(Color.red)
+                Text(title)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .fixedSize()
+            .padding(.horizontal, 7)
+            .frame(height: 22)
+            .background(Capsule().fill(Color.white.opacity(0.13)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -452,6 +572,13 @@ enum Format {
     }
 
     static func percent(_ value: Double) -> String { "\(Int((value * 100).rounded()))%" }
+
+    /// Время записи: «01:23» или «1:02:03».
+    static func elapsed(_ seconds: TimeInterval) -> String {
+        let total = max(Int(seconds), 0)
+        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
+    }
 
     /// binary: память считаем в ГиБ (как macOS для ОЗУ), диск — в десятичных ГБ (как Finder).
     static func gigabytes(_ bytes: Double, decimals: Int, binary: Bool = true) -> String {

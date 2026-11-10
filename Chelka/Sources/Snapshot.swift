@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// Рисует панель с примерными данными в PNG (режим `--snapshot`):
-/// пустой калькулятор в `файл.png`, калькулятор с примером в `файл-calc.png`.
+/// пустой калькулятор в `файл.png`, калькулятор с примером в `файл-calc.png`,
+/// идущая запись экрана в `файл-rec.png` и свёрнутая во время записи в `файл-rec-live.png`.
 enum Snapshot {
     @MainActor
     static func render(to path: String) -> Bool {
@@ -17,7 +18,13 @@ enum Snapshot {
 
         // 2. Раскрыта, в калькуляторе пример с действием (подсвечено ×) и длинным числом.
         model.calculator.setPreview(accumulator: 1250, op: .multiply, entry: "12345,67")
-        return write(NotchRoot(model: model), to: base + "-calc.png")
+        guard write(NotchRoot(model: model), to: base + "-calc.png") else { return false }
+
+        // 3. Идёт запись экрана: в панели время и «Стоп», в свёрнутом виде — точка и время у выреза.
+        model.recorder.setPreview(elapsed: 83)
+        guard write(NotchRoot(model: model), to: base + "-rec.png") else { return false }
+        model.expanded = false
+        return write(NotchRoot(model: model), to: base + "-rec-live.png")
     }
 
     @MainActor
