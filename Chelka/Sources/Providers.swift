@@ -6,8 +6,8 @@ import IOKit.ps
 
 // MARK: - Сводка по системе
 
-/// Процессор, память, диск, сеть, батарея, громкость и яркость.
-/// Обновляется раз в секунду и только пока панель раскрыта.
+/// Процессор, память, диск, сеть, батарея, громкость, яркость и заряд Bluetooth-устройств.
+/// Обновляется раз в секунду (Bluetooth — раз в 30 секунд) и только пока панель раскрыта.
 final class SystemFeed: ObservableObject {
     @Published private(set) var cpu: Double?
     @Published private(set) var memoryUsed: Double = 0
@@ -23,6 +23,9 @@ final class SystemFeed: ObservableObject {
     @Published private(set) var volume: Float?
     @Published private(set) var muted = false
     @Published private(set) var brightness: Float?
+    /// Подключённые Bluetooth-устройства с зарядом. Прошлый список не стираем при закрытии панели,
+    /// чтобы при раскрытии она сразу была нужной высоты.
+    @Published private(set) var bluetooth: [BluetoothDevice] = []
 
     var active = false {
         didSet {
@@ -33,6 +36,7 @@ final class SystemFeed: ObservableObject {
             cpu = nil
             download = nil
             upload = nil
+            bluetoothCheckedAt = nil
             refresh()
         }
     }
@@ -42,6 +46,8 @@ final class SystemFeed: ObservableObject {
     private var lastTicks: [UInt32]?
     private var lastNet: (bytesIn: UInt64, bytesOut: UInt64, time: Date)?
     private var diskCheckedAt: Date?
+    private var bluetoothCheckedAt: Date?
+    private var bluetoothBusy = false
 
     func start() {
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -59,6 +65,12 @@ final class SystemFeed: ObservableObject {
         volume = SystemAudio.volume()
         muted = SystemAudio.isMuted()
         brightness = DisplayBrightness.get()
+        sampleBluetooth()
+    }
+
+    /// Для режима `--probe`: прочитать Bluetooth сразу, на этом потоке.
+    func refreshBluetoothNow() {
+        bluetooth = BluetoothBatteries.read()
     }
 
     func setVolume(_ value: Float) {
@@ -96,6 +108,21 @@ final class SystemFeed: ObservableObject {
         let total = delta.reduce(0, +)
         guard total > 0 else { return }
         cpu = (delta[0] + delta[1] + delta[3]) / total
+    }
+
+    private func sampleBluetooth() {
+        if let checked = bluetoothCheckedAt, Date().timeIntervalSince(checked) < 30 { return }
+        guard !bluetoothBusy else { return }
+        bluetoothCheckedAt = Date()
+        bluetoothBusy = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let devices = BluetoothBatteries.read()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.bluetoothBusy = false
+                if self.bluetooth != devices { self.bluetooth = devices }
+            }
+        }
     }
 
     private func sampleMemory() {
@@ -192,6 +219,11 @@ final class SystemFeed: ObservableObject {
         volume = 0.6
         muted = false
         brightness = 0.7
+        bluetooth = [
+            BluetoothDevice(name: "AirPods Pro", kind: .airpods, left: 80, right: 75, caseLevel: 40),
+            BluetoothDevice(name: "Magic Keyboard", kind: .keyboard, main: 64),
+            BluetoothDevice(name: "Magic Mouse", kind: .mouse, main: 15),
+        ]
     }
 }
 

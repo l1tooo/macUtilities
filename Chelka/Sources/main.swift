@@ -61,6 +61,11 @@ if arguments.contains("--probe") {
     feed.refresh()
     print("cpu=\(feed.cpu.map(Format.percent) ?? "nil") memory=\(Format.gigabytes(feed.memoryUsed, decimals: 1))/\(Format.gigabytes(feed.memoryTotal, decimals: 0)) free%=\(feed.memoryFreePercent.map(String.init) ?? "nil")")
     print("disk free=\(feed.diskFree.map { Format.gigabytes($0, decimals: 0, binary: false) } ?? "nil") net ↓\(feed.download.map(Format.speed) ?? "nil") ↑\(feed.upload.map(Format.speed) ?? "nil")")
+    feed.refreshBluetoothNow()
+    print("bluetooth: " + (feed.bluetooth.isEmpty ? "нет устройств с зарядом" : feed.bluetooth.map { d in
+        "\(d.kind) " + [d.main.map { "\($0)%" }, d.left.map { "Л\($0)%" }, d.right.map { "П\($0)%" }, d.caseLevel.map { "футляр\($0)%" }]
+            .compactMap { $0 }.joined(separator: " ")
+    }.joined(separator: ", ")))
     print("battery=\(feed.battery.map(String.init) ?? "nil") charging=\(feed.charging) volume=\(feed.volume.map { Format.percent(Double($0)) } ?? "nil") muted=\(feed.muted) brightness=\(feed.brightness.map { Format.percent(Double($0)) } ?? "nil")")
     exit(0)
 }

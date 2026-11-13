@@ -3,8 +3,14 @@ import SwiftUI
 
 enum Layout {
     static let expandedSize = CGSize(width: 680, height: 200)
-    /// Окно чуть больше раскрытой панели, чтобы влезла тень.
-    static let windowSize = CGSize(width: 740, height: 232)
+    /// Нижняя строка с зарядом Bluetooth-устройств (есть, только если они подключены).
+    static let footerHeight: CGFloat = 28
+    /// Окно чуть больше раскрытой панели, чтобы влезли нижняя строка и тень.
+    static let windowSize = CGSize(width: 740, height: 260)
+
+    static func expandedSize(footer: Bool) -> CGSize {
+        CGSize(width: expandedSize.width, height: expandedSize.height + (footer ? footerHeight : 0))
+    }
 
     /// Насколько «чёлка» расширяется в каждую сторону, когда идёт запись экрана.
     static let liveWing: CGFloat = 64
@@ -141,8 +147,9 @@ final class NotchController {
     /// Над своим неактивным окном события движения приходят ненадёжно, поэтому здесь опрос.
     private func checkMouseLeft() {
         guard let screen else { return }
-        let w = Layout.expandedSize.width + 24
-        let h = Layout.expandedSize.height + 16
+        let size = Layout.expandedSize(footer: !model.system.bluetooth.isEmpty)
+        let w = size.width + 24
+        let h = size.height + 16
         let keep = NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
         if !contains(keep, NSEvent.mouseLocation) { setExpanded(false) }
     }

@@ -27,14 +27,18 @@ struct NotchShape: Shape {
 struct NotchRoot: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var recorder: Recorder
+    @ObservedObject var system: SystemFeed
 
     init(model: NotchModel) {
         self.model = model
         self.recorder = model.recorder
+        self.system = model.system
     }
 
     private var size: CGSize {
-        model.expanded ? Layout.expandedSize : Layout.collapsedSize(notch: model.notchSize, live: recorder.isRecording)
+        model.expanded
+            ? Layout.expandedSize(footer: !system.bluetooth.isEmpty)
+            : Layout.collapsedSize(notch: model.notchSize, live: recorder.isRecording)
     }
 
     var body: some View {
@@ -60,6 +64,7 @@ struct NotchRoot: View {
         .environment(\.colorScheme, .dark)
         .animation(.spring(response: 0.36, dampingFraction: 0.82), value: model.expanded)
         .animation(.spring(response: 0.36, dampingFraction: 0.82), value: recorder.isRecording)
+        .animation(.spring(response: 0.36, dampingFraction: 0.82), value: system.bluetooth.isEmpty)
         .contextMenu {
             Button(LaunchAtLogin.isEnabled ? "✓ Запускать при входе" : "Запускать при входе") { LaunchAtLogin.toggle() }
             Divider()
@@ -143,13 +148,69 @@ struct ExpandedView: View {
                 CalculatorSection(calculator: calculator)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: .infinity, alignment: .top)
+            .frame(height: Layout.expandedSize.height - 2 - 18 - 12 - max(model.notchSize.height - 4, 18), alignment: .top)
+
+            if !system.bluetooth.isEmpty {
+                BluetoothRow(devices: system.bluetooth)
+                    .transition(.opacity)
+            }
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 24)
         .padding(.top, 2)
         .padding(.bottom, 18)
-        .frame(width: Layout.expandedSize.width, height: Layout.expandedSize.height, alignment: .top)
+        .frame(width: Layout.expandedSize.width,
+               height: Layout.expandedSize(footer: !system.bluetooth.isEmpty).height, alignment: .top)
+    }
+}
+
+// MARK: - Bluetooth
+
+/// Нижняя строка: заряд подключённых Bluetooth-устройств.
+struct BluetoothRow: View {
+    let devices: [BluetoothDevice]
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1)
+            HStack(spacing: 18) {
+                ForEach(devices) { device in
+                    HStack(spacing: 5) {
+                        Image(systemName: Format.bluetoothSymbol(device.kind))
+                            .foregroundStyle(.white.opacity(0.7))
+                        Text(device.name)
+                            .foregroundStyle(.white.opacity(0.75))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: 130, alignment: .leading)
+                            .fixedSize(horizontal: true, vertical: false)
+                        levels(device)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 11).monospacedDigit())
+            .frame(height: 16)
+        }
+    }
+
+    /// «80%» или «Л 80% · П 75% · футляр 40%».
+    @ViewBuilder private func levels(_ device: BluetoothDevice) -> some View {
+        HStack(spacing: 6) {
+            if let main = device.main { level(nil, main) }
+            if let left = device.left { level("Л", left) }
+            if let right = device.right { level("П", right) }
+            if let box = device.caseLevel { level("футляр", box) }
+        }
+    }
+
+    private func level(_ label: String?, _ value: Int) -> some View {
+        HStack(spacing: 2) {
+            if let label { Text(label).foregroundStyle(.white.opacity(0.5)) }
+            Text("\(value)%")
+                .fontWeight(.medium)
+                .foregroundStyle(value <= 20 ? Color.red : Color.white)
+        }
     }
 }
 
@@ -605,6 +666,19 @@ enum Format {
         case 38..<63: return "battery.50"
         case 13..<38: return "battery.25"
         default: return "battery.0"
+        }
+    }
+
+    static func bluetoothSymbol(_ kind: BluetoothDevice.Kind) -> String {
+        switch kind {
+        case .mouse: return "magicmouse.fill"
+        case .keyboard: return "keyboard.fill"
+        case .trackpad: return "hand.point.up.left.fill"
+        case .airpods: return "airpods"
+        case .headphones: return "headphones"
+        case .speaker: return "hifispeaker.fill"
+        case .gamepad: return "gamecontroller.fill"
+        case .other: return "dot.radiowaves.left.and.right"
         }
     }
 
